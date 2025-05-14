@@ -7,12 +7,6 @@
 ;R16 - R19 Buat data essential 
 
 main:
-;=======Setup DHT11=========
-  SBI   DDRB, 1       ;Set PB1 as output
-  CBI   PORTB, 1      ;Send low pulse
-  CALL  delay_20ms    ;Delay 20ms
-  SBI   PORTB, 1      ;Send High pulse
-;===========================
 
 ;======Setup Slave==========
   SBI   DDRB, 4       ;Set MISO for slave transmission
@@ -24,6 +18,15 @@ main:
 
 run:
   RCALL delay_2s
+
+;=======Setup DHT11=========
+  SBI   DDRB, 1       ;Set PB1 as output
+  CBI   PORTB, 1      ;Send low pulse
+  CALL  delay_20ms    ;Delay 20ms
+  SBI   PORTB, 1      ;Send High pulse
+;===========================
+
+
 ;==================================================
 ;Response signal
 ;==================================================
@@ -56,7 +59,7 @@ wait3:
   MOV   R26, R16
   RCALL transmitt
   MOV   R26, R17
-  RCALL transmitt
+  ;RCALL transmitt
   RJMP  run
 
 ;===================================================
