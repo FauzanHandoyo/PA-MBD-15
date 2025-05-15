@@ -57,6 +57,7 @@ wait3:
   
 ;Transmit data 
   MOV   R26, R16
+  ;LDI   R26, 80
   RCALL transmitt
   MOV   R26, R17
   ;RCALL transmitt
