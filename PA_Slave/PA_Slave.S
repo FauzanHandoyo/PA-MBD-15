@@ -57,15 +57,13 @@ wait3:
 
 run:  
 ;Transmit data
-  RCALL I2C_init
-  RCALL I2C_start       ;transmit START condition
-  LDI   R27, 0b10010000 ;SLA(1001000) + W(0)
-  RCALL I2C_write       ;write slave address SLA+W
-  MOV   R27, R16
-  LDI   R27, 30
-  ;MOV   R26, R17
-  RCALL I2C_write       ;write data byte
-  RCALL I2C_stop        ;transmit STOP condition
+RCALL I2C_init
+RCALL I2C_start       ;transmit START condition
+LDI   R27, 0b10010000 ;SLA(1001000) + W(0)
+RCALL I2C_write       ;write slave address SLA+W
+MOV   R27, R16        ;Use actual humidity data from R16
+RCALL I2C_write       ;write data byte
+RCALL I2C_stop        ;transmit STOP condition
   RJMP  run
 
 ;===================================================
@@ -146,16 +144,28 @@ l7: IN    R20, TIFR0      ;get TIFR0 byte & check
     LDI   R20, (1<<OCF0A)
     OUT   TIFR0, R20      ;clear OCF0 flag
     RET
+    
+delay_500ms:             ;delay 500ms - added for I2C communication
+    LDI   R20, 255
+d1: LDI   R21, 255
+d2: LDI   R22, 41        ;adjusted for ~500ms
+d3: DEC   R22
+    BRNE  d3
+    DEC   R21
+    BRNE  d2
+    DEC   R20
+    BRNE  d1
+    RET
 
 ;===================================================
 
 
 
 I2C_init:
-    LDI   R21, 0
+    LDI   R21, 0          ;Clear register
     STS   TWSR, R21       ;prescaler = 0
-    LDI   R21, 12         ;division factor = 12
-    STS   TWBR, R21       ;SCK freq = 400kHz
+    LDI   R21, 72         ;division factor = 72 for 100kHz (slower and more reliable)
+    STS   TWBR, R21       ;SCK freq = 100kHz
     LDI   R21, (1<<TWEN)
     STS   TWCR, R21       ;enable TWI
     RET
