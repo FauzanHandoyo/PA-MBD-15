@@ -23,10 +23,10 @@ main:
     SBI   DDRD, 5       ; Set PD5 as output (Red LED/Buzzer - Dry indicator)
     
     ; Initialize SPI as master
-    SBI   DDRB, 5       ; Set PB5 as output (SCK)
-    SBI   DDRB, 3       ; Set PB3 as output (MOSI)
-    SBI   DDRB, 2       ; Set PB2 as output (SS)
-    SBI   PORTB, 2      ; Set SS high initially
+    ;SBI   DDRB, 5       ; Set PB5 as output (SCK)
+    ;SBI   DDRB, 3       ; Set PB3 as output (MOSI)
+    ;SBI   DDRB, 2       ; Set PB2 as output (SS)
+    ;SBI   PORTB, 2      ; Set SS high initially
 
 init_serial:
     CLR   R24
@@ -40,8 +40,9 @@ init_serial:
     STS   UCSR0C, R24     ;asynch, no parity, 1 stop, 8 bits
     
     ; Configure SPI: Enable, Master mode, Clock Rate fck/16
-    LDI   R16, (1<<SPE)|(1<<MSTR)|(1<<SPR0)
-    OUT   SPCR, R16
+    ;LDI   R17, (1<<SPE)
+    ;OUT   SPCR, R17       ;enable SPI as slave
+
 
     ; LEDs start off - ensure both are off initially
     CBI   PORTD, 4      ; Turn off green LED (wet indicator)
@@ -62,11 +63,7 @@ run:
     RJMP  run            ; Loop forever
 
 ; SPI receive function - gets humidity value from slave
-SPI_RECEIVE:
-    CBI   PORTB, 2       ; Clear SS to start transmission
-    
-    LDI   R16, 0xFF      ; Dummy byte to send while receiving
-    OUT   SPDR, R16      ; Start transmission
+SPI_RECEIVE:    
     
 SPI_WAIT:
     IN    R16, SPSR      ; Check SPI status
@@ -74,7 +71,7 @@ SPI_WAIT:
     RJMP  SPI_WAIT       ; Wait for transmission to complete
     
     IN    R17, SPDR      ; Read received humidity data into R17
-    SBI   PORTB, 2       ; Set SS high to end transmission
+    ;SBI   PORTB, 2       ; Set SS high to end transmission
     RET
 
 ; Check humidity value and set appropriate LED
