@@ -9,14 +9,14 @@
 main:
 
 ;======Setup Slave==========
-  SBI   DDRB, 4       ;Set MISO for slave transmission
-  LDI   R20, (1<<SPE)
-  OUT   SPCR, R20
+  ;SBI   DDRB, 4       ;Set MISO for slave transmission
+  ;LDI   R20, (1<<SPE)
+  ;OUT   SPCR, R20
 ;===========================
 
 ;setup done
 
-run:
+;run:
   RCALL delay_2s
 
 ;=======Setup DHT11=========
@@ -54,13 +54,18 @@ wait3:
   MOV   R18, R21
   RCALL DHT11_reading
   MOV   R19, R21
-  
-;Transmit data 
-  MOV   R26, R16
-  ;LDI   R26, 80
-  RCALL transmitt
-  MOV   R26, R17
-  ;RCALL transmitt
+
+run:  
+;Transmit data
+  RCALL I2C_init
+  RCALL I2C_start       ;transmit START condition
+  LDI   R27, 0b10010000 ;SLA(1001000) + W(0)
+  RCALL I2C_write       ;write slave address SLA+W
+  MOV   R27, R16
+  LDI   R27, 30
+  ;MOV   R26, R17
+  RCALL I2C_write       ;write data byte
+  RCALL I2C_stop        ;transmit STOP condition
   RJMP  run
 
 ;===================================================
@@ -91,18 +96,6 @@ wait5:
   RET                 
 ;=====================================================
 
-
-;=====================================================
-;Transmission
-;=====================================================
-transmitt:
-  OUT   SPDR, R26
-done:
-  in    R27, SPSR
-  SBRS  R27, SPIF
-  RJMP  done
-  ret
-;=====================================================
 
 
 ;=====================================================
@@ -158,4 +151,45 @@ l7: IN    R20, TIFR0      ;get TIFR0 byte & check
 
 
 
-
+I2C_init:
+    LDI   R21, 0
+    STS   TWSR, R21       ;prescaler = 0
+    LDI   R21, 12         ;division factor = 12
+    STS   TWBR, R21       ;SCK freq = 400kHz
+    LDI   R21, (1<<TWEN)
+    STS   TWCR, R21       ;enable TWI
+    RET
+;==============================================================
+I2C_start:
+    LDI   R21, (1<<TWINT)|(1<<TWSTA)|(1<<TWEN)
+    STS   TWCR, R21       ;transmit START condition
+    ;----------------------------------------------------------
+wt1:LDS   R21, TWCR
+    SBRS  R21, TWINT      ;TWI interrupt = 1?
+    RJMP  wt1             ;no, wait for end of transmission
+    ;----------------------------------------------------------
+    LDS   R21, TWSR       ; Check status
+    ANDI  R21, 0xF8       ; Mask prescaler bits
+    CPI   R21, 0x08       ; START transmitted?
+    BRNE  I2C_start       ; If not, retry
+    RET
+;==============================================================
+I2C_write:
+    STS   TWDR, R27       ;copy SLA+W into data register
+    LDI   R21, (1<<TWINT)|(1<<TWEN)
+    STS   TWCR, R21       ;transmit SLA+W
+    ;----------------------------------------------------------
+wt2:LDS   R21, TWCR
+    SBRS  R21, TWINT
+    RJMP  wt2             ;wait for end of transmission
+    ;----------------------------------------------------------
+    LDS   R21, TWSR       ; Check status
+    ANDI  R21, 0xF8       ; Mask prescaler bits
+    CPI   R21, 0x18       ; SLA+W transmitted, ACK received?
+    BRNE  I2C_start       ; If not, restart
+    RET
+;==============================================================
+I2C_stop:
+    LDI   R21, (1<<TWINT)|(1<<TWSTO)|(1<<TWEN)
+    STS   TWCR, R21       ;transmit STOP condition
+    RET

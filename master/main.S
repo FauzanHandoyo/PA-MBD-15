@@ -21,12 +21,12 @@ main:
     ; Configure PORTD: PD4 and PD5 as outputs (LEDs)
     SBI   DDRD, 4       ; Set PD4 as output (Green LED - Wet indicator)
     SBI   DDRD, 5       ; Set PD5 as output (Red LED/Buzzer - Dry indicator)
-    
-    ; Initialize SPI as master
-    SBI   DDRB, 5       ; Set PB5 as output (SCK)
-    SBI   DDRB, 3       ; Set PB3 as output (MOSI)
-    SBI   DDRB, 2       ; Set PB2 as output (SS)
-    SBI   PORTB, 2      ; Set SS high initially
+
+    ; LEDs start off - ensure both are off initially
+    CBI   PORTD, 4      ; Turn off green LED (wet indicator)
+    CBI   PORTD, 5      ; Turn off red LED/buzzer (dry indicator)
+    ; Clear initial value
+    CLR   R17           ; Clear humidity reading
 
 init_serial:
     CLR   R24
@@ -38,24 +38,12 @@ init_serial:
     STS   UCSR0B, R24     ;enable RXB & TXB
     LDI   R24, 1<<UCSZ00 | 1<<UCSZ01
     STS   UCSR0C, R24     ;asynch, no parity, 1 stop, 8 bits
-    
-    ; Configure SPI: Enable, Master mode, Clock Rate fck/16
-    LDI   R16, (1<<SPE)|(1<<MSTR)|(1<<SPR0)
-    OUT   SPCR, R16
-
-    ; LEDs start off - ensure both are off initially
-    CBI   PORTD, 4      ; Turn off green LED (wet indicator)
-    CBI   PORTD, 5      ; Turn off red LED/buzzer (dry indicator)
-    
-    ; Clear initial value
-    CLR   R17           ; Clear humidity reading
 
 run:
     ; Main program loop
     RCALL SPI_RECEIVE    ; Receive humidity data via SPI
-    ;LDI   R17, 0x30
-    MOV   R16, R17
-    MOV   R29, R17
+    ;MOV   R16, R17
+    ;MOV   R29, R17
     RCALL print_ADC
     RCALL CHECK_HUMIDITY ; Check humidity and set LEDs
     RCALL delay_500ms    ; Short delay between readings
@@ -63,18 +51,19 @@ run:
 
 ; SPI receive function - gets humidity value from slave
 SPI_RECEIVE:
-    CBI   PORTB, 2       ; Clear SS to start transmission
+    RCALL I2C_init
+    RCALL I2C_listen        ; listen to bus to be addressed
+    RCALL I2C_read          ; read data byte
     
-    LDI   R16, 0xFF      ; Dummy byte to send while receiving
-    OUT   SPDR, R16      ; Start transmission
+    ; Move received data to both registers for display and LED control
+    MOV   R16, R27          ; For print_ADC
+    MOV   R29, R27          ; For humidity threshold comparison
     
-SPI_WAIT:
-    IN    R16, SPSR      ; Check SPI status
-    SBRS  R16, SPIF      ; Skip if SPIF flag is set
-    RJMP  SPI_WAIT       ; Wait for transmission to complete
+    ; Debug - Print status to UART
+    LDS   R21, TWSR        ; Get current TWI status
+    MOV   R16, R21         ; Move to R16 for printing
+    RCALL print_ADC        ; Print TWI status
     
-    IN    R17, SPDR      ; Read received humidity data into R17
-    SBI   PORTB, 2       ; Set SS high to end transmission
     RET
 
 ; Check humidity value and set appropriate LED
@@ -196,4 +185,47 @@ l8: DEC   R22
     BRNE  l7
     DEC   R20
     BRNE  l6
+    RET
+
+
+I2C_init:
+    LDI   R21, 0b10010000
+    STS   TWAR, R21         ; store slave address 0b10010000
+    LDI   R21, (1<<TWINT)|(1<<TWEN)|(1<<TWEA)
+    STS   TWCR, R21         ; enable TWI & ACK with interrupt cleared
+    RET
+
+I2C_listen:
+    LDI   R21, (1<<TWINT)|(1<<TWEN)|(1<<TWEA)
+    STS   TWCR, R21         ; enable and clear interrupt
+wait_addr:
+    LDS   R21, TWCR
+    SBRS  R21, TWINT
+    RJMP  wait_addr         ; Wait for address
+    
+    LDS   R21, TWSR        ; Check status
+    ANDI  R21, 0xF8        ; Mask prescaler bits
+    CPI   R21, 0x60        ; Own SLA+W received, ACK sent?
+    BRNE  I2C_listen       ; If not, keep waiting
+    RET
+
+I2C_read:
+    LDI   R21, (1<<TWINT)|(1<<TWEA)|(1<<TWEN)
+    STS   TWCR, R21        ; enable and clear interrupt
+wait_data:
+    LDS   R21, TWCR
+    SBRS  R21, TWINT
+    RJMP  wait_data        ; wait for data byte
+
+    LDS   R21, TWSR        ; Check status
+    ANDI  R21, 0xF8        ; Mask prescaler bits
+    CPI   R21, 0x80        ; Data received, ACK sent?
+    BRNE  I2C_read         ; If not, try again
+    
+    LDS   R27, TWDR        ; Read received data only once
+    
+    ; Debug - Print received value immediately
+    MOV   R16, R27         ; Copy received data for printing
+    RCALL print_ADC        ; Print it right away
+    
     RET
