@@ -6,7 +6,8 @@
 ; Register assignments:
 ; R16 - Temporary register for operations
 ; R17 - Humidity value from SPI
-; R20-R22 - Used for delays
+; R18-R19 - Used for delays and hex conversion
+; R20-R22 - delay counters
 
 ; Constants
 .equ HUMIDITY_THRESHOLD, 50   ; Threshold for wet/dry soil (50%)
@@ -19,95 +20,130 @@ main:
     OUT   SPL, R16
 
     ; Configure PORTD: PD4 and PD5 as outputs (LEDs)
-    SBI   DDRD, 4       ; Set PD4 as output (Green LED - Wet indicator)
-    SBI   DDRD, 5       ; Set PD5 as output (Red LED/Buzzer - Dry indicator)
-    
+    SBI   DDRD, 4       ; Green LED
+    SBI   DDRD, 5       ; Red LED/Buzzer
+
     ; Initialize SPI as master
-    SBI   DDRB, 5       ; Set PB5 as output (SCK)
-    SBI   DDRB, 3       ; Set PB3 as output (MOSI)
-    SBI   DDRB, 2       ; Set PB2 as output (SS)
-    SBI   PORTB, 2      ; Set SS high initially
-    
-    ; Configure SPI: Enable, Master mode, Clock Rate fck/16
+    SBI   DDRB, 5       ; SCK
+    SBI   DDRB, 3       ; MOSI
+    SBI   DDRB, 2       ; SS
+    SBI   PORTB, 2      ; SS high initially
     LDI   R16, (1<<SPE)|(1<<MSTR)|(1<<SPR0)
     OUT   SPCR, R16
 
-    ; LEDs start off - ensure both are off initially
-    CBI   PORTD, 4      ; Turn off green LED (wet indicator)
-    CBI   PORTD, 5      ; Turn off red LED/buzzer (dry indicator)
-    
-    ; Clear initial value
-    CLR   R17           ; Clear humidity reading
+    ; LEDs start off
+    CBI   PORTD, 4
+    CBI   PORTD, 5
+
+    ; Clear initial humidity
+    CLR   R17
+
+    ; Initialize UART
+    RCALL uart_init
 
 run:
-    ; Main program loop
-    RCALL SPI_RECEIVE    ; Receive humidity data via SPI
-    RCALL CHECK_HUMIDITY ; Check humidity and set LEDs
-    RCALL delay_500ms    ; Short delay between readings
-    RJMP  run            ; Loop forever
+    RCALL SPI_RECEIVE         ; Receive humidity via SPI
+    RCALL SEND_HUMIDITY       ; Send humidity as two-digit decimal via UART
+    RCALL CHECK_HUMIDITY      ; Set LEDs
+    RCALL delay_500ms         ; Delay ~500ms
+    RJMP  run                 ; Loop
 
-; SPI receive function - gets humidity value from slave
+;-----------------------------------------
+; SPI receive
 SPI_RECEIVE:
-    CBI   PORTB, 2       ; Clear SS to start transmission
-    
-    LDI   R16, 0xFF      ; Dummy byte to send while receiving
-    OUT   SPDR, R16      ; Start transmission
-    
-SPI_WAIT:
-    IN    R16, SPSR      ; Check SPI status
-    SBRS  R16, SPIF      ; Skip if SPIF flag is set
-    RJMP  SPI_WAIT       ; Wait for transmission to complete
-    
-    IN    R17, SPDR      ; Read received humidity data into R17
-    SBI   PORTB, 2       ; Set SS high to end transmission
+    CBI   PORTB, 2            ; SS low
+    LDI   R16, 0xFF           ; Dummy byte
+    OUT   SPDR, R16
+wait_spi:
+    IN    R16, SPSR
+    SBRS  R16, SPIF
+    RJMP  wait_spi
+    IN    R17, SPDR           ; Read humidity into R17
+    SBI   PORTB, 2            ; SS high
     RET
 
-; Check humidity value and set appropriate LED
+;-----------------------------------------
+; Check humidity and set LEDs
 CHECK_HUMIDITY:
-    ; First, turn off all LEDs to avoid any overlap
-    CBI   PORTD, 4       ; Turn off green LED
-    CBI   PORTD, 5       ; Turn off red LED/buzzer
-    
-    ; Now compare with threshold and set appropriate LED
-    CPI   R17, HUMIDITY_THRESHOLD  ; Compare humidity with threshold
-    BRSH  SOIL_WET       ; Branch if humidity >= threshold (soil is wet)
-    
-    ; Soil is dry - turn on only red LED/buzzer
-    SBI   PORTD, 5       ; Turn on red LED/buzzer
+    CBI   PORTD, 4
+    CBI   PORTD, 5
+    CPI   R17, HUMIDITY_THRESHOLD
+    BRSH  SOIL_WET
+    SBI   PORTD, 5            ; Dry soil
     RET
-    
 SOIL_WET:
-    ; Soil is wet - turn on only green LED
-    SBI   PORTD, 4       ; Turn on green LED
+    SBI   PORTD, 4            ; Wet soil
     RET
 
-; Delay functions
-delay_100ms:
-    LDI   R20, 100       ; Outer counter
-outer1:
-    LDI   R21, 200       ; Middle counter
-middle1:
-    LDI   R22, 200       ; Inner counter
-inner1:
-    DEC   R22
-    BRNE  inner1
-    DEC   R21
-    BRNE  middle1
-    DEC   R20
-    BRNE  outer1
-    RET
-
+;-----------------------------------------
+; Delay ~500ms
 delay_500ms:
-    LDI   R20, 250       ; Longer delay for testing
-outer2:
+    LDI   R20, 250
+outer:
     LDI   R21, 200
-middle2:
+middle:
     LDI   R22, 200
-inner2:
+inner:
     DEC   R22
-    BRNE  inner2
+    BRNE  inner
     DEC   R21
-    BRNE  middle2
+    BRNE  middle
     DEC   R20
-    BRNE  outer2
+    BRNE  outer
+    RET
+
+;-----------------------------------------
+; UART initialization
+uart_init:
+    ; Baud 9600 @16MHz => UBRR0 = 103
+    LDI   R16, hi8(103)
+    STS   UBRR0H, R16
+    LDI   R16, lo8(103)
+    STS   UBRR0L, R16
+    ; Enable transmitter
+    LDI   R16, (1<<TXEN0)
+    STS   UCSR0B, R16
+    ; 8N1
+    LDI   R16, (1<<UCSZ01)|(1<<UCSZ00)
+    STS   UCSR0C, R16
+    RET
+
+; UART transmit one byte in R17
+uart_transmit:
+    LDS   R16, UCSR0A
+wait_udre:
+    SBRS  R16, UDRE0
+    RJMP  wait_udre
+    STS   UDR0, R17
+    RET
+
+;-----------------------------------------
+; Send R17 as two-digit decimal + CRLF
+SEND_HUMIDITY:
+    ; Tens digit
+    MOV   R16, R17      ; Copy value
+    LDI   R18, 0        ; R18 = tens count
+dec_tens:
+    CPI   R16, 10
+    BRLO  send_units
+    SUBI  R16, 10
+    INC   R18
+    RJMP  dec_tens
+send_tens:
+    ; ASCII tens
+    LDI   R19, '0'
+    ADD   R18, R19
+    MOV   R17, R18
+    RCALL uart_transmit
+send_units:
+    ; ASCII units
+    LDI   R19, '0'
+    ADD   R16, R19
+    MOV   R17, R16
+    RCALL uart_transmit
+    ; CRLF
+    LDI   R17, '\r'
+    RCALL uart_transmit
+    LDI   R17, '\n'
+    RCALL uart_transmit
     RET
