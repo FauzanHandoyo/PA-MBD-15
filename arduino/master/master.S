@@ -12,9 +12,13 @@
 ; R18 - Timer counter
 ; R19 - Second counter for 5-second timing
 ; R20-R22 - Used for delays
+; R25 - Timer duration in seconds
+; R26 - Debounce flag for INT0
+; R27 - Debounce flag for INT1
 
 ; Constants
 .equ HUMIDITY_THRESHOLD, 50   ; Threshold for wet/dry soil (50%)
+.equ DEBOUNCE_TIME, 200       ; Debounce time in milliseconds
 
 main:
     ; Initialize stack pointer (SP)
@@ -32,20 +36,28 @@ main:
     SBI   DDRB, 5       ; Set PB5 as output (SCK)
     SBI   DDRB, 3       ; Set PB3 as output (MOSI)
     SBI   DDRB, 2       ; Set PB2 as output (SS)
-    ;SBI   PORTB, 2      ; Set SS high 
-
+    
+    ; Setup interrupt pins with proper pull-ups
+    CBI   DDRD, 2       ; Set PD2 as input (INT0)
+    CBI   DDRD, 3       ; Set PD3 as input (INT1)
     SBI   PORTD, 2      ; Enable pull-up on PD2 (INT0)
     SBI   PORTD, 3      ; Enable pull-up on PD3 (INT1)
 
-    ; Enable INT0 and INT1, falling edge
+    ; Enable INT0 and INT1, falling edge 
     LDI   R16, (1<<INT0)|(1<<INT1)
     OUT   EIMSK, R16
+    ; For Arduino Uno: ISC01=1, ISC00=0 for falling edge
     LDI   R16, (1<<ISC01)|(1<<ISC11)
     STS   EICRA, R16
 
+    ; Initialize debounce flags
+    CLR   R26           ; Clear INT0 debounce flag
+    CLR   R27           ; Clear INT1 debounce flag
+
+    ; Timer1 setup
     LDI   R16, hi8(49911)   ; Load high byte first
     STS   TCNT1H, R16
-    LDI   R16, lo8(49911)    ; Then load low byte
+    LDI   R16, lo8(49911)   ; Then load low byte
     STS   TCNT1L, R16
     
     ; 1024 prescaler and overflow interrupt
@@ -54,15 +66,16 @@ main:
     LDI   R16, (1<<TOIE1)
     STS   TIMSK1, R16
 
+    ; Initialize serial
 init_serial:
     CLR   R24
     STS   UCSR0A, R24    
     STS   UBRR0H, R24     
     LDI   R24, 103        
-    STS   UBRR0L, R24     ;to set baud rate 9600
-    LDI   R24, 1<<RXEN0 | 1<<TXEN0
-    STS   UCSR0B, R24     ;enable RXB & TXB
-    LDI   R24, 1<<UCSZ00 | 1<<UCSZ01
+    STS   UBRR0L, R24     ; Set baud rate 9600
+    LDI   R24, (1<<RXEN0)|(1<<TXEN0)
+    STS   UCSR0B, R24     ; Enable RXB & TXB
+    LDI   R24, (1<<UCSZ00)|(1<<UCSZ01)
     STS   UCSR0C, R24     
     
     ; SPI: Enable, Master mode, Clock Rate fck/16
@@ -78,7 +91,7 @@ init_serial:
     CLR   R17          
     CLR   R18           
     CLR   R19           
-    LDI   R25, 5
+    LDI   R25, 5        ; Initialize timer duration to 5 seconds
     
     SEI                 ; Enable global interrupts
 
@@ -103,7 +116,7 @@ SPI_RECEIVE:
     
     RCALL delay_100ms   
     
-    CBI   PORTB, 2      
+    CBI   PORTB, 2      ; SS low to start transfer
     LDI   R16, 0x00      
     OUT   SPDR, R16      
     
@@ -111,10 +124,9 @@ SPI_WAIT:
     IN    R16, SPSR      ; Check SPI status
     SBRS  R16, SPIF      ; Skip if SPIF flag is set
     RJMP  SPI_WAIT       ; Wait for transmission to complete
-    ;SBI   PORTB, 2       ; Set SS high to end transmission
     
     IN    R17, SPDR      ; Read received humidity data R17
-    ;ROL   R17
+    SBI   PORTB, 2       ; SS high to end transfer (added this line)
     RET
 
 ; Check humidity value and set appropriate LED
@@ -167,12 +179,34 @@ inner2:
     BRNE  outer2
     RET
 
+; Added debounce delay - approx 20ms
+debounce_delay:
+    PUSH  R20
+    PUSH  R21
+    PUSH  R22
+    
+    LDI   R20, 20        ; Shorter delay for debounce
+debounce_outer:
+    LDI   R21, 100
+debounce_middle:
+    LDI   R22, 100
+debounce_inner:
+    DEC   R22
+    BRNE  debounce_inner
+    DEC   R21
+    BRNE  debounce_middle
+    DEC   R20
+    BRNE  debounce_outer
+    
+    POP   R22
+    POP   R21
+    POP   R20
+    RET
 
 print_ADC:
-
     MOV   R30, R29           ; Store original value in R30
     
-    ; Print "Temperature: " string
+    ; Print "Humidity: " string
     LDI   R16, 'H'
     RCALL uart_transmit
     LDI   R16, 'u'
@@ -194,11 +228,11 @@ print_ADC:
     LDI   R16, ' '
     RCALL uart_transmit
 
-    MOV R16, R30
-    CLR R24
-    CLR R23
+    MOV   R16, R30
+    CLR   R24
+    CLR   R23
 
-; Calculate hundreds digit
+    ; Calculate hundreds digit
 hundreds_loop:
     CPI   R16, 100
     BRLO  tens             ; If less than 100, move to tens
@@ -215,17 +249,15 @@ tens:
     RJMP  tens
     
 ones:
-    
     ; Print hundreds digit (only if non-zero)
     TST   R24
     BREQ  skip_hundreds    ; Skip printing if hundreds = 0
     MOV   R16, R24
-    LDI R24, 48
-    ADD  R16, R24         ; Convert to ASCII
+    LDI   R24, 48
+    ADD   R16, R24         ; Convert to ASCII
     RCALL uart_transmit
     
 skip_hundreds:
-    
     TST   R24
     BRNE  print_tens       ; If hundreds was printed, always print tens
     TST   R23
@@ -234,7 +266,7 @@ skip_hundreds:
 print_tens:
     MOV   R16, R23
     LDI   R23, 48 
-    ADD  R16, R23         ; Convert to ASCII
+    ADD   R16, R23         ; Convert to ASCII
     RCALL uart_transmit
     
 skip_tens:
@@ -261,8 +293,8 @@ tens2:
     
 ones2:
     ; R16 now has ones digit, convert to ASCII
-    LDI R24, 48
-    ADD  R16, R24         ; Convert to ASCII
+    LDI   R24, 48
+    ADD   R16, R24         ; Convert to ASCII
     RCALL uart_transmit
     
     ; Print newline and carriage return
@@ -272,9 +304,6 @@ ones2:
     RCALL uart_transmit
     
     RET
-    ; Convert binary value (0-255) to decimal digits
-    MOV   R16, R30         
-    CLR   R24
 
 ; UART transmit function
 uart_transmit:
@@ -287,107 +316,99 @@ uart_wait:
     POP   R17
     RET
 
-l2: LDS   R17, UCSR0A
-    SBRS  R17, UDRE0      ;test data buffer if data can be sent
-    RJMP  l2
-    
-    STS   UDR0, R16       ;print ADC mid digit on serial monitor
-    
-    POP   R16             ;restore ADCH value from STACK register
-    ANDI  R16, 0x0F       ;mask & extract low-nibble
-    ADD   R16, R23
-    MOV   R28, R16
-    SUBI  R28, 58
-    BRPL  A_F_LSD
-    
-l3: LDS   R17, UCSR0A
-    SBRS  R17, UDRE0      ;test data buffer if data can be sent
-    RJMP  l3
-    
-    STS   UDR0, R16       ;print ADC LSD on serial monitor
-    
-l4: LDS   R17, UCSR0A
-    SBRS  R17, UDRE0      ;test data buffer if data can be sent
-    RJMP  l4
-   
-    LDI   R18, 0x0A
-    STS   UDR0, R18       ;print newline on serial monitor    
-   
-l5: LDS   R17, UCSR0A
-    SBRS  R17, UDRE0      ;test data buffer if data can be sent
-    RJMP  l5
-   
-    STS   UDR0, R18       ;print carriage return on serial monitor    
-
-    RCALL delay_sec       ;1 second delay  
-    RET
-;=====================================================================
-A_F_MSD:
-    ADD   R16, R24        ;add 7 to byte to get ASCII chars A to F
-    RJMP  l2
-
-A_F_LSD:
-    ADD   R16, R24        ;add 7 to byte to get ASCII chars A to F
-    RJMP  l3
-
-delay_sec:                ;1s delay
-    LDI   R20, 255
-l6: LDI   R21, 255
-l7: LDI   R22, 80
-l8: DEC   R22
-    BRNE  l8
-    DEC   R21
-    BRNE  l7
-    DEC   R20
-    BRNE  l6
-    RET
-
-;---------------------------------------------------------------------
-; === INT0: Tambah Waktu ===
+; === INT0: Tambah Waktu (Button debounced) ===
 INT0_vect:
     PUSH  R16
     IN    R16, SREG
     PUSH  R16
+    
+    ; Check if button is already being processed (debouncing)
+    TST   R26
+    BRNE  int0_exit        ; If R26 != 0, button is already being processed
+    
+    ; Set debounce flag
+    LDI   R26, 1
+    
+    ; Add debounce delay
+    RCALL debounce_delay
+    
+    ; Check if button is still pressed
+    SBIC  PIND, 2          ; Skip if PD2 is clear (button still pressed)
+    RJMP  int0_reset       ; Button released too soon, reset and exit
 
+    ; Button press confirmed
     INC   R18
-    CBI   PORTD, 5          ; Hijau OFF
-
-    INC R25
-
+    CBI   PORTD, 5         ; Hijau OFF
+    INC   R25
     RCALL print_timer_add
+    
+    ; Wait for button release
+int0_wait_release:
+    SBIS  PIND, 2          ; Skip if PD2 is set (button released)
+    RJMP  int0_wait_release
+    
+    ; Add more debounce delay after release
+    RCALL debounce_delay
 
+int0_reset:
+    ; Clear debounce flag
+    CLR   R26
+    
+int0_exit:
     POP   R16
     OUT   SREG, R16
     POP   R16
     RETI
 
-
-; === INT1: Kurangi Waktu ===
+; === INT1: Kurangi Waktu (Button debounced) ===
 INT1_vect:
     PUSH  R16
     IN    R16, SREG
     PUSH  R16
-
+    
+    ; Quick debounce - just ignore button for a bit
+    RCALL debounce_delay
+    
+    ; Check if counter can be decremented
     TST   R18
     BREQ  no_dec
     DEC   R18
 no_dec:
     CBI   PORTD, 5
 
-    CPI R25, 6
-    BRLO min_reached
-    DEC R25
-
+    ; Only decrement R25 if it's > 5
+    CPI   R25, 6
+    BRLO  min_reached
+    DEC   R25
     RCALL print_timer_dec
-
+    
 min_reached:
-    POP R16
-    OUT SREG, R16
-    POP R16
+    ; No waiting for release - just exit
+    
+    POP   R16
+    OUT   SREG, R16
+    POP   R16
+    RETI
+
+int1_wait_release:
+    SBIS  PIND, 3          ; Skip if PD3 is set (button released)
+    RJMP  int1_wait_release
+    
+    ; Add more debounce delay after release
+    RCALL debounce_delay
+
+int1_reset:
+    ; Clear debounce flag
+    CLR   R27
+    
+int1_exit:
+    POP   R16
+    OUT   SREG, R16
+    POP   R16
     RETI
 
 print_timer_add:
-    PUSH R16
+    PUSH  R16
 
     ; Print "Timer add 1"
     LDI   R16, 'T'
@@ -437,6 +458,7 @@ print_timer_add:
     
     POP   R16
     RET
+
 print_timer_dec:
     PUSH  R16
     
@@ -489,7 +511,7 @@ print_timer_dec:
     POP   R16
     RET
 
-; === Timer1 Overflow: 5-Second Timer for PD7 ===
+; === Timer1 Overflow: Configurable Timer for PD7 ===
 TIMER1_OVF_vect:
     PUSH  R16
     IN    R16, SREG
@@ -498,15 +520,15 @@ TIMER1_OVF_vect:
     ; Reset Timer1 for next 1-second interval
     LDI   R16, hi8(49911)   ; Load high byte first (for 1-second timing)
     STS   TCNT1H, R16
-    LDI   R16, lo8(49911)    ; Then load low byte
+    LDI   R16, lo8(49911)   ; Then load low byte
     STS   TCNT1L, R16
     
     ; This interrupt fires approximately every second
     INC   R19             ; Increment second counter
-    CP   R19, R25          ; Check if we've reached 5 seconds
-    BRNE  not_five_sec
+    CP    R19, R25        ; Check if we've reached configured seconds
+    BRNE  not_time_yet
     
-    ; Five seconds have passed
+    ; Timer threshold reached
     CLR   R19             ; Reset second counter
     
     ; Toggle PD7 LED - turn ON
@@ -521,9 +543,9 @@ TIMER1_OVF_vect:
 skip_dec:
     RJMP  timer_exit
 
-not_five_sec:
+not_time_yet:
     ; For other seconds, turn OFF PD7
-    CPI   R19, 1          ; Check if we're at 1 second after the 5-second mark
+    CPI   R19, 1          ; Check if we're at 1 second after the timer mark
     BRNE  timer_exit
     CBI   PORTD, 7        ; Turn OFF PD7 LED after 1 second
 
@@ -534,8 +556,8 @@ timer_exit:
     RETI
 
 print_water_message:
-    PUSH R16
-
+    PUSH  R16
+    
     LDI   R16, 'W'
     RCALL uart_transmit
     LDI   R16, 'A'
@@ -572,4 +594,3 @@ print_water_message:
     
     POP   R16
     RET
-
