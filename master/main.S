@@ -2,10 +2,15 @@
 #include "avr/io.h"
 
 .global main
+.global INT0_vect
+.global INT1_vect
+.global TIMER1_OVF_vect
 
 ; Register assignments:
 ; R16 - Temporary register for operations
 ; R17 - Humidity value from SPI
+; R18 - Timer counter
+; R19 - Second counter for 5-second timing
 ; R20-R22 - Used for delays
 
 ; Constants
@@ -18,15 +23,41 @@ main:
     LDI   R16, lo8(RAMEND)
     OUT   SPL, R16
 
-    ; Configure PORTD: PD4 and PD5 as outputs (LEDs)
+    ; Configure PORTD outputs
     SBI   DDRD, 4       ; Set PD4 as output (Green LED - Wet indicator)
     SBI   DDRD, 5       ; Set PD5 as output (Red LED/Buzzer - Dry indicator)
+    SBI   DDRD, 7       ; Set PD7 as output (Additional timer LED)
     
     ; Initialize SPI as master
     SBI   DDRB, 5       ; Set PB5 as output (SCK)
     SBI   DDRB, 3       ; Set PB3 as output (MOSI)
     SBI   DDRB, 2       ; Set PB2 as output (SS)
     ;SBI   PORTB, 2      ; Set SS high initially
+
+    ; Setup pull-up resistors for INT0 and INT1 buttons
+    SBI   PORTD, 2      ; Enable pull-up on PD2 (INT0)
+    SBI   PORTD, 3      ; Enable pull-up on PD3 (INT1)
+
+    ; Enable INT0 and INT1, falling edge
+    LDI   R16, (1<<INT0)|(1<<INT1)
+    OUT   EIMSK, R16
+    LDI   R16, (1<<ISC01)|(1<<ISC11)
+    STS   EICRA, R16
+
+    ; Setup Timer1 for 1-second intervals
+    ; With 16MHz clock and 1024 prescaler:
+    ; 16,000,000 / 1024 = 15,625 ticks per second
+    ; For approximately 1 second overflow, use value 65536-15625 = 49911
+    LDI   R16, hi8(49911)   ; Load high byte first
+    STS   TCNT1H, R16
+    LDI   R16, lo8(49911)    ; Then load low byte
+    STS   TCNT1L, R16
+    
+    ; Enable Timer1 with 1024 prescaler and overflow interrupt
+    LDI   R16, (1<<CS12)|(1<<CS10)
+    STS   TCCR1B, R16
+    LDI   R16, (1<<TOIE1)
+    STS   TIMSK1, R16
 
 init_serial:
     CLR   R24
@@ -43,12 +74,18 @@ init_serial:
     LDI   R16, (1<<SPE)|(1<<MSTR)|(1<<SPR0)
     OUT   SPCR, R16
 
-    ; LEDs start off - ensure both are off initially
+    ; LEDs start off - ensure all are off initially
     CBI   PORTD, 4      ; Turn off green LED (wet indicator)
     CBI   PORTD, 5      ; Turn off red LED/buzzer (dry indicator)
+    CBI   PORTD, 7      ; Turn off PD7 LED (timer indicator)
     
-    ; Clear initial value
+    ; Clear initial values
     CLR   R17           ; Clear humidity reading
+    CLR   R18           ; Clear timer counter
+    CLR   R19           ; Clear second counter
+    LDI   R25, 5
+    
+    SEI                 ; Enable global interrupts
 
 run:
     ; Main program loop
@@ -205,3 +242,86 @@ l8: DEC   R22
     DEC   R20
     BRNE  l6
     RET
+
+;---------------------------------------------------------------------
+; === INT0: Tambah Waktu ===
+INT0_vect:
+    PUSH  R16
+    IN    R16, SREG
+    PUSH  R16
+
+    INC   R18
+    CBI   PORTD, 5          ; Hijau OFF
+
+    INC R25
+
+    POP   R16
+    OUT   SREG, R16
+    POP   R16
+    RETI
+
+;---------------------------------------------------------------------
+; === INT1: Kurangi Waktu ===
+INT1_vect:
+    PUSH  R16
+    IN    R16, SREG
+    PUSH  R16
+
+    TST   R18
+    BREQ  no_dec
+    DEC   R18
+no_dec:
+    CBI   PORTD, 5
+
+    CPI R25, 6
+    BRLO min_reached
+    DEC R25
+
+min_reached:
+    POP R16
+    OUT SREG, R16
+    POP R16
+    RETI
+
+;---------------------------------------------------------------------
+; === Timer1 Overflow: 5-Second Timer for PD7 ===
+TIMER1_OVF_vect:
+    PUSH  R16
+    IN    R16, SREG
+    PUSH  R16
+    
+    ; Reset Timer1 for next 1-second interval
+    LDI   R16, hi8(49911)   ; Load high byte first (for 1-second timing)
+    STS   TCNT1H, R16
+    LDI   R16, lo8(49911)    ; Then load low byte
+    STS   TCNT1L, R16
+    
+    ; This interrupt fires approximately every second
+    INC   R19             ; Increment second counter
+    CP   R19, R25          ; Check if we've reached 5 seconds
+    BRNE  not_five_sec
+    
+    ; Five seconds have passed
+    CLR   R19             ; Reset second counter
+    
+    ; Toggle PD7 LED - turn ON
+    SBI   PORTD, 7        ; Turn ON PD7 LED
+    
+    ; Decrement timer counter if active
+    TST   R18
+    BREQ  skip_dec        ; If counter = 0, don't decrement
+    DEC   R18             ; Decrement timer counter
+skip_dec:
+    RJMP  timer_exit
+
+not_five_sec:
+    ; For other seconds, turn OFF PD7
+    CPI   R19, 1          ; Check if we're at 1 second after the 5-second mark
+    BRNE  timer_exit
+    CBI   PORTD, 7        ; Turn OFF PD7 LED after 1 second
+
+timer_exit:
+    POP   R16
+    OUT   SREG, R16
+    POP   R16
+    RETI
