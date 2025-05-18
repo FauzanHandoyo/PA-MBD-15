@@ -103,13 +103,11 @@ Setelah melakukan integrasi antara hardware dan software, rangkaian diuji untuk 
 
 ### 4.2 Results
 
-Our testing confirmed that:
-- The DHT11 sensor successfully reads soil humidity values with consistent accuracy
-- Data transmission via SPI occurs without errors or delays
-- The system correctly activates/deactivates the water pump based on the predefined humidity threshold
-- LED indicators properly display soil moisture status
-- Manual control buttons respond effectively to user input
-- The timer accurately counts down watering duration
+Setelah dilakukan pengujian, didapatkan hasil yang sesuai dengan harapan dan tujuan proyek:
+- Sensor DHT11 mampu membaca nilai kelembaban tanah dengan akurat dan mengirimkan data secara tepat ke mikrokontroler.
+- Respons sistem terhadap perubahan kelembaban juga berjalan dengan baik, dimana pompa air aktif secara otomatis saat kelembaban turun di bawah batas yang telah ditentukan.
+- Pengaturan timer untuk durasi penyiraman juga berjalan efektif, sesuai dengan pilihan waktu yang dipilih melalui tombol input.
+- LED indikator berhasil menampilkan status kelembaban secara visual dengan benar, memudahkan pemantauan kondisi tanah secara langsung.
 
 ### 4.3 Performance Evaluation
 <p align="justify">Evaluasi pada proyek akhir sistem embedded ini dibagi menjadi dua aspek, yaitu evaluasi kinerja selama proses pengerjaan proyek dan evaluasi hasil yang diperoleh setelah implementasi. Dari segi kinerja selama pengerjaan proyek, kelompok kami menunjukkan kerja sama yang baik sehingga proses pengerjaan berjalan terorganisir dan tidak berantakan. Pembagian tugas dilakukan secara seimbang dan tepat waktu, sehingga semua kebutuhan proyek dapat diselesaikan sesuai dengan rencana yang telah ditetapkan. Sedangkan dari segi hasil yang didapatkan, kelompok kami berhasil mencapai tujuan dan harapan awal proyek. Seluruh modul yang dirancang telah berhasil diimplementasikan dalam kode assembly dengan baik, sehingga proyek ini dapat dikatakan memenuhi semua persyaratan dari proyek akhir sistem embedded.
