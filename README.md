@@ -4,7 +4,7 @@
 <h1 align="center">SOIL HUMIDITY MONITOR</h1>
   
 <p align="center">
-  <a href="https://docs.google.com/document/d/1hm8Lt8FwRerWbpJ2OE97XsNa6cO3VT7M3mVZjngSqH8/edit"><strong>Explore our docs »</strong></a>
+  <a href="https://docs.google.com/document/d/1Ss-ogJtGTPsM1MXrbXuX_eJ3efer-t2etYB02URwMEg/edit?usp=sharing"><strong>Explore our docs »</strong></a>
   <span> | </span>
   <a href="https://docs.google.com/presentation/d/1jAXcCAlKZmyZG6dh-H0lwVFYFlI2TxYi/edit?slide=id.p1#slide=id.p1"><strong>Our Presentation »</strong></a>
     <br />
