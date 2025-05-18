@@ -32,9 +32,8 @@ main:
     SBI   DDRB, 5       ; Set PB5 as output (SCK)
     SBI   DDRB, 3       ; Set PB3 as output (MOSI)
     SBI   DDRB, 2       ; Set PB2 as output (SS)
-    ;SBI   PORTB, 2      ; Set SS high initially
+    ;SBI   PORTB, 2      ; Set SS high 
 
-    ; Setup pull-up resistors for INT0 and INT1 buttons
     SBI   PORTD, 2      ; Enable pull-up on PD2 (INT0)
     SBI   PORTD, 3      ; Enable pull-up on PD3 (INT1)
 
@@ -44,16 +43,12 @@ main:
     LDI   R16, (1<<ISC01)|(1<<ISC11)
     STS   EICRA, R16
 
-    ; Setup Timer1 for 1-second intervals
-    ; With 16MHz clock and 1024 prescaler:
-    ; 16,000,000 / 1024 = 15,625 ticks per second
-    ; For approximately 1 second overflow, use value 65536-15625 = 49911
     LDI   R16, hi8(49911)   ; Load high byte first
     STS   TCNT1H, R16
     LDI   R16, lo8(49911)    ; Then load low byte
     STS   TCNT1L, R16
     
-    ; Enable Timer1 with 1024 prescaler and overflow interrupt
+    ; 1024 prescaler and overflow interrupt
     LDI   R16, (1<<CS12)|(1<<CS10)
     STS   TCCR1B, R16
     LDI   R16, (1<<TOIE1)
@@ -61,56 +56,56 @@ main:
 
 init_serial:
     CLR   R24
-    STS   UCSR0A, R24     ;clear UCSR0A register
-    STS   UBRR0H, R24     ;clear UBRR0H register
-    LDI   R24, 103        ;& store in UBRR0L 103
+    STS   UCSR0A, R24    
+    STS   UBRR0H, R24     
+    LDI   R24, 103        
     STS   UBRR0L, R24     ;to set baud rate 9600
     LDI   R24, 1<<RXEN0 | 1<<TXEN0
     STS   UCSR0B, R24     ;enable RXB & TXB
     LDI   R24, 1<<UCSZ00 | 1<<UCSZ01
-    STS   UCSR0C, R24     ;asynch, no parity, 1 stop, 8 bits
+    STS   UCSR0C, R24     
     
-    ; Configure SPI: Enable, Master mode, Clock Rate fck/16
+    ; SPI: Enable, Master mode, Clock Rate fck/16
     LDI   R16, (1<<SPE)|(1<<MSTR)|(1<<SPR0)
     OUT   SPCR, R16
 
-    ; LEDs start off - ensure all are off initially
-    CBI   PORTD, 4      ; Turn off green LED (wet indicator)
-    CBI   PORTD, 5      ; Turn off red LED/buzzer (dry indicator)
-    CBI   PORTD, 7      ; Turn off PD7 LED (timer indicator)
+    ; LEDs start off
+    CBI   PORTD, 4      
+    CBI   PORTD, 5      
+    CBI   PORTD, 7     
     
     ; Clear initial values
-    CLR   R17           ; Clear humidity reading
-    CLR   R18           ; Clear timer counter
-    CLR   R19           ; Clear second counter
+    CLR   R17          
+    CLR   R18           
+    CLR   R19           
     LDI   R25, 5
     
     SEI                 ; Enable global interrupts
 
 run:
     ; Main program loop
-    RCALL delay_500ms    ; Delay before starting SPI transfer to let slave prepare
-    RCALL delay_500ms    ; Delay before starting SPI transfer to let slave prepare
-    RCALL delay_500ms    ; Delay before starting SPI transfer to let slave prepare
+    RCALL delay_500ms    
+    RCALL delay_500ms    
+    RCALL delay_500ms    
     RCALL SPI_RECEIVE    ; Receive humidity data via SPI
     MOV   R16, R17
     MOV   R29, R17
     RCALL print_ADC
     RCALL CHECK_HUMIDITY ; Check humidity and set LEDs
-    RCALL delay_500ms    ; Short delay between readings
+    RCALL delay_500ms    
     RJMP  run            ; Loop forever
 
-; SPI receive function - gets humidity value from slave
+; SPI receive gets humidity value from slave
 SPI_RECEIVE:
     ; First clear any pending flags
-    IN    R16, SPSR      ; Read SPSR to clear old SPIF
-    IN    R16, SPDR      ; Read SPDR to clear old data
+    IN    R16, SPSR      
+    IN    R16, SPDR      
     
-    RCALL delay_100ms    ; Short delay before starting transfer
+    RCALL delay_100ms   
     
-    CBI   PORTB, 2       ; Clear SS to start transmission
-    LDI   R16, 0x00      ; Dummy byte to send while receiving
-    OUT   SPDR, R16      ; Start transmission
+    CBI   PORTB, 2      
+    LDI   R16, 0x00      
+    OUT   SPDR, R16      
     
 SPI_WAIT:
     IN    R16, SPSR      ; Check SPI status
@@ -118,17 +113,17 @@ SPI_WAIT:
     RJMP  SPI_WAIT       ; Wait for transmission to complete
     ;SBI   PORTB, 2       ; Set SS high to end transmission
     
-    IN    R17, SPDR      ; Read received humidity data into R17
+    IN    R17, SPDR      ; Read received humidity data R17
     ;ROL   R17
     RET
 
 ; Check humidity value and set appropriate LED
 CHECK_HUMIDITY:
-    ; First, turn off all LEDs to avoid any overlap
-    CBI   PORTD, 4       ; Turn off green LED
-    CBI   PORTD, 5       ; Turn off red LED/buzzer
+    ;turn off all LEDs to avoid any overlap
+    CBI   PORTD, 4    
+    CBI   PORTD, 5      
     
-    ; Now compare with threshold and set appropriate LED
+    ; compare with threshold and set appropriate LED
     CPI   R29, HUMIDITY_THRESHOLD  ; Compare humidity with threshold
     BRSH  SOIL_WET       ; Branch if humidity >= threshold (soil is wet)
     
@@ -174,59 +169,169 @@ inner2:
 
 
 print_ADC:
-    LDI   R23, 48         ;constants used to get ASCII values
-    LDI   R24, 7          ;for chars 0-->9 & A-->F
 
-    ;ADD   R25, R23        ;add 48 to byte to get ASCII char 0 to 9
-    ;-----------------------------------------------------------------
-    PUSH  R16             ;store copy of ADCH in STACK register
-    ANDI  R16, 0xF0       ;mask & extract high-nibble
-    SWAP  R16             ;swap high-nibble with low-nibble
-    ADD   R16, R23        ;add 48 to byte to get ASCII char 0 to 9
-    MOV   R28, R16        ;store a copy of byte in R28
-    SUBI  R28, 58         ;subtract 58 from R28
-    BRPL  A_F_MSD         ;jump if result is +ve
+    MOV   R30, R29           ; Store original value in R30
+    
+    ; Print "Temperature: " string
+    LDI   R16, 'T'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, 'm'
+    RCALL uart_transmit
+    LDI   R16, 'p'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, 'r'
+    RCALL uart_transmit
+    LDI   R16, 'a'
+    RCALL uart_transmit
+    LDI   R16, 't'
+    RCALL uart_transmit
+    LDI   R16, 'u'
+    RCALL uart_transmit
+    LDI   R16, 'r'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, ':'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+
+    MOV R16, R30
+    CLR R24
+    CLR R23
+
+; Calculate hundreds digit
+hundreds_loop:
+    CPI   R16, 100
+    BRLO  tens             ; If less than 100, move to tens
+    SUBI  R16, 100
+    INC   R24              ; Increment hundreds counter
+    RJMP  hundreds_loop
+    
+    ; Calculate tens digit
+tens:
+    CPI   R16, 10
+    BRLO  ones             ; If less than 10, move to ones
+    SUBI  R16, 10
+    INC   R23              ; Increment tens counter
+    RJMP  tens
+    
+ones:
+    
+    ; Print hundreds digit (only if non-zero)
+    TST   R24
+    BREQ  skip_hundreds    ; Skip printing if hundreds = 0
+    MOV   R16, R24
+    LDI R24, 48
+    ADD  R16, R24         ; Convert to ASCII
+    RCALL uart_transmit
+    
+skip_hundreds:
+    
+    TST   R24
+    BRNE  print_tens       ; If hundreds was printed, always print tens
+    TST   R23
+    BREQ  skip_tens        ; Skip printing if tens = 0
+    
+print_tens:
+    MOV   R16, R23
+    LDI   R23, 48 
+    ADD  R16, R23         ; Convert to ASCII
+    RCALL uart_transmit
+    
+skip_tens:
+    MOV   R16, R30          ; Get original value
+    
+    ; Get ones digit
+    MOV   R16, R30          ; Get original value
+    CLR   R24              ; Clear hundreds
+    CLR   R23              ; Clear tens
+    
+hundreds_loop2:
+    CPI   R16, 100
+    BRLO  tens2            ; If less than 100, move to tens
+    SUBI  R16, 100
+    INC   R24              ; Increment hundreds counter
+    RJMP  hundreds_loop2
+    
+tens2:
+    CPI   R16, 10
+    BRLO  ones2            ; If less than 10, move to ones
+    SUBI  R16, 10
+    INC   R23              ; Increment tens counter
+    RJMP  tens2
+    
+ones2:
+    ; R16 now has ones digit, convert to ASCII
+    LDI R24, 48
+    ADD  R16, R24         ; Convert to ASCII
+    RCALL uart_transmit
+    
+    ; Print newline and carriage return
+    LDI   R16, 0x0A        
+    RCALL uart_transmit
+    LDI   R16, 0x0D       
+    RCALL uart_transmit
+    
+    RET
+    ; Convert binary value (0-255) to decimal digits
+    MOV   R16, R30         
+    CLR   R24
+
+; UART transmit function
+uart_transmit:
+    PUSH  R17
+uart_wait:
+    LDS   R17, UCSR0A
+    SBRS  R17, UDRE0       ; Wait until data register is empty
+    RJMP  uart_wait
+    STS   UDR0, R16        ; Send character
+    POP   R17
+    RET
 
 l2: LDS   R17, UCSR0A
     SBRS  R17, UDRE0      ;test data buffer if data can be sent
     RJMP  l2
-    ;-----------------------------------------------------------------
+    
     STS   UDR0, R16       ;print ADC mid digit on serial monitor
-    ;-----------------------------------------------------------------
+    
     POP   R16             ;restore ADCH value from STACK register
     ANDI  R16, 0x0F       ;mask & extract low-nibble
     ADD   R16, R23
     MOV   R28, R16
     SUBI  R28, 58
     BRPL  A_F_LSD
-    ;-----------------------------------------------------------------
+    
 l3: LDS   R17, UCSR0A
     SBRS  R17, UDRE0      ;test data buffer if data can be sent
     RJMP  l3
-    ;-----------------------------------------------------------------
+    
     STS   UDR0, R16       ;print ADC LSD on serial monitor
-    ;-----------------------------------------------------------------
+    
 l4: LDS   R17, UCSR0A
     SBRS  R17, UDRE0      ;test data buffer if data can be sent
     RJMP  l4
-    ;-----------------------------------------------------------------
+   
     LDI   R18, 0x0A
     STS   UDR0, R18       ;print newline on serial monitor    
-    ;-----------------------------------------------------------------
+   
 l5: LDS   R17, UCSR0A
     SBRS  R17, UDRE0      ;test data buffer if data can be sent
     RJMP  l5
-    ;-----------------------------------------------------------------
-    LDI   R18, 0x0D
+   
     STS   UDR0, R18       ;print carriage return on serial monitor    
-    ;-----------------------------------------------------------------
+
     RCALL delay_sec       ;1 second delay  
     RET
 ;=====================================================================
 A_F_MSD:
     ADD   R16, R24        ;add 7 to byte to get ASCII chars A to F
     RJMP  l2
-;---------------------------------------------------------------------
+
 A_F_LSD:
     ADD   R16, R24        ;add 7 to byte to get ASCII chars A to F
     RJMP  l3
@@ -255,12 +360,14 @@ INT0_vect:
 
     INC R25
 
+    RCALL print_timer_add
+
     POP   R16
     OUT   SREG, R16
     POP   R16
     RETI
 
-;---------------------------------------------------------------------
+
 ; === INT1: Kurangi Waktu ===
 INT1_vect:
     PUSH  R16
@@ -277,13 +384,117 @@ no_dec:
     BRLO min_reached
     DEC R25
 
+    RCALL print_timer_dec
+
 min_reached:
     POP R16
     OUT SREG, R16
     POP R16
     RETI
 
-;---------------------------------------------------------------------
+print_timer_add:
+    PUSH R16
+
+    ; Print "Timer add 1"
+    LDI   R16, 'T'
+    RCALL uart_transmit
+    LDI   R16, 'i'
+    RCALL uart_transmit
+    LDI   R16, 'm'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, 'r'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, 'a'
+    RCALL uart_transmit
+    LDI   R16, 'd'
+    RCALL uart_transmit
+    LDI   R16, 'd'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, '1'
+    RCALL uart_transmit
+
+    ; Print current timer value
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, '('
+    RCALL uart_transmit
+    
+    ; Convert R25 to ASCII and print
+    MOV   R16, R25
+    SUBI  R16, -48         ; Convert to ASCII (add 48)
+    RCALL uart_transmit
+    
+    LDI   R16, 's'
+    RCALL uart_transmit
+    LDI   R16, ')'
+    RCALL uart_transmit
+    
+    ; Print newline and carriage return
+    LDI   R16, 0x0A        ; Newline
+    RCALL uart_transmit
+    LDI   R16, 0x0D        ; Carriage return
+    RCALL uart_transmit
+    
+    POP   R16
+    RET
+print_timer_dec:
+    PUSH  R16
+    
+    ; Print "Timer dec 1"
+    LDI   R16, 'T'
+    RCALL uart_transmit
+    LDI   R16, 'i'
+    RCALL uart_transmit
+    LDI   R16, 'm'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, 'r'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, 'd'
+    RCALL uart_transmit
+    LDI   R16, 'e'
+    RCALL uart_transmit
+    LDI   R16, 'c'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, '1'
+    RCALL uart_transmit
+    
+    ; Print current timer value
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, '('
+    RCALL uart_transmit
+    
+    ; Convert R25 to ASCII and print
+    MOV   R16, R25
+    SUBI  R16, -48         ; Convert to ASCII (add 48)
+    RCALL uart_transmit
+    
+    LDI   R16, 's'
+    RCALL uart_transmit
+    LDI   R16, ')'
+    RCALL uart_transmit
+    
+    ; Print newline and carriage return
+    LDI   R16, 0x0A        ; Newline
+    RCALL uart_transmit
+    LDI   R16, 0x0D        ; Carriage return
+    RCALL uart_transmit
+    
+    POP   R16
+    RET
+
 ; === Timer1 Overflow: 5-Second Timer for PD7 ===
 TIMER1_OVF_vect:
     PUSH  R16
@@ -306,6 +517,8 @@ TIMER1_OVF_vect:
     
     ; Toggle PD7 LED - turn ON
     SBI   PORTD, 7        ; Turn ON PD7 LED
+
+    RCALL print_water_message
     
     ; Decrement timer counter if active
     TST   R18
@@ -325,3 +538,44 @@ timer_exit:
     OUT   SREG, R16
     POP   R16
     RETI
+
+print_water_message:
+    PUSH R16
+
+    LDI   R16, 'W'
+    RCALL uart_transmit
+    LDI   R16, 'A'
+    RCALL uart_transmit
+    LDI   R16, 'T'
+    RCALL uart_transmit
+    LDI   R16, 'E'
+    RCALL uart_transmit
+    LDI   R16, 'R'
+    RCALL uart_transmit
+    LDI   R16, ' '
+    RCALL uart_transmit
+    LDI   R16, 'I'
+    RCALL uart_transmit
+    LDI   R16, 'N'
+    RCALL uart_transmit
+    LDI   R16, 'C'
+    RCALL uart_transmit
+    LDI   R16, 'O'
+    RCALL uart_transmit
+    LDI   R16, 'M'
+    RCALL uart_transmit
+    LDI   R16, 'I'
+    RCALL uart_transmit
+    LDI   R16, 'N'
+    RCALL uart_transmit
+    LDI   R16, 'G'
+    RCALL uart_transmit
+    
+    LDI   R16, 0x0A        ; Newline
+    RCALL uart_transmit
+    LDI   R16, 0x0D        ; Carriage return
+    RCALL uart_transmit
+    
+    POP   R16
+    RET
+
