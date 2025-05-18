@@ -75,9 +75,6 @@ Sistem dirancang dengan koneksi sebagai berikut:
 <p align="justify">Untuk memenuhi kriteria pada proyek akhir Praktikum Sistem Embedded, pemrograman software dilakukan dalam bahasa Assembly untuk merancang program monitoring kelembapan tanah. Bahasa Assembly adalah sebuah bahasa pemrograman rendah (low-level) yang digunakan untuk memprogram komputer, khususnya mikroprosesor dan mikrokontroler. Bahasa ini memiliki keterkaitan yang erat dengan machine learning yang merupakan bahasa yang dipahami langsung oleh komputer.
 </p>
 
-### 3.1 System Flowchart
-Software kami mengikuti alur logika yang ditunjukkan di bawah ini:
-
 ### 3.2 Key Functions
 Berdasarkan kode, fungsi yang dibuat antara lain:
 - **DHT11_sensor**: Berfungsi untuk menginisialisasi dan memulai komunikasi dengan sensor DHT11 guna membaca nilai kelembapan tanah secara digital. 
