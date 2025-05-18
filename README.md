@@ -71,7 +71,7 @@ Sistem dirancang dengan koneksi sebagai berikut:
 
 # 3. Software Implementation
 
-### Programming Approach
+### 3.1 Programming Approach
 <p align="justify">Untuk memenuhi kriteria pada proyek akhir Praktikum Sistem Embedded, pemrograman software dilakukan dalam bahasa Assembly untuk merancang program monitoring kelembapan tanah. Bahasa Assembly adalah sebuah bahasa pemrograman rendah (low-level) yang digunakan untuk memprogram komputer, khususnya mikroprosesor dan mikrokontroler. Bahasa ini memiliki keterkaitan yang erat dengan machine learning yang merupakan bahasa yang dipahami langsung oleh komputer.
 </p>
 
